@@ -1,0 +1,31 @@
+# Ignore files directly in the repository root.
+/*
+
+# Keep root-level directories and this ignore file trackable.
+!/*/
+!/.gitignore
+
+# Local Obsidian and AI-assistant state.
+/.obsidian/
+/.trash/
+/.claude/
+/.claudian/
+
+# Operating-system metadata.
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor and IDE settings.
+/.vscode/
+/.idea/
+*.swp
+*.swo
+*~
+
+# Temporary, log, and backup files.
+*.tmp
+*.temp
+*.log
+*.bak
