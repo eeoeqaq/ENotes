@@ -1,0 +1,2 @@
+- [x] inner peace
+- [x] better explain in vsc
