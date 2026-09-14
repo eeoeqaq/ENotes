@@ -1,3 +1,0 @@
-unhashable
-
-dictionary comprehension
