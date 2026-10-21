@@ -1,34 +1,8 @@
-#### whitted style
-![[Pasted image 20260911103100.png]]
-需要大量计算光线和表面的求交
-- 隐式表面
-- 三角形
-为了加速：AABB（axis aligned binding boxes）
-##### accularate
-使用kd树：对空间的划分
-计算大量三角形和矩形的求交问题，太慢，，
-
-使用BVH：对物体的分组
-
-##### radiometry
-![[Pasted image 20260913143728.png]]
-
-###### radiant intensity
-每一单位立体角中的光强 -> 坎德拉
-
-###### irradiance
-- power per unit area
-- will falloff
-
-###### radiance
-- power per solid angle per u.a. (radiant intensity per u.a.)(irradiance per solid angle)
-
-##### BRDF
-一个描述一束光从某个方向射到表面后，有多少比例会沿另一个方向反射出去的方程
--> ___rendering equation___
+#### BRDF 和 rendering equation
+BRDF：一个描述一束光从某个方向射到表面后，有多少比例会沿另一个方向反射出去的方程
+-> __rendering equation__
 
 ![[Pasted image 20260914134240.png]]![[Pasted image 20260914134251.png]]![[Pasted image 20260914134303.png]]
-
 ###### 渲染方程与级数展开
 
 **① 渲染方程每一项的来源**
@@ -91,3 +65,96 @@ $\|\mathcal{K}\|<1$ ⇔ 每次弹射都有损耗（吸收 / 飞出场景）→ $
 - **Whitted ray tracing**：把无穷级数截断到前几项（直接光 + 几次镜面反射/折射），是全局光照的近似
 
 直接光照+间接光照 -> 全局光照
+
+
+
+
+###### what's more
+现实中按照rendering equation对全局光照直接模拟会让复杂度指数级上涨
+需要一个能控制复杂度的方法：path tracing
+
+#### rendering equation的实现
+##### whitted style ray tracing
+![[Pasted image 20260911103100.png]]
+需要大量计算光线和表面的求交
+- 隐式表面
+- 三角形
+为了加速：AABB（axis aligned binding boxes）
+###### accularate
+使用kd树：对空间的划分
+计算大量三角形和矩形的求交问题，太慢，，
+
+使用BVH：对物体的分组
+
+
+##### path tracing 
+###### 前置知识
+- 为什么要有PT？
+	- whitted style 不能解决glossy物体反射
+	- 漫反射表面物体的反射？color blend？
+	- 真实模拟rendering equation的开销过大
+	- 在每一个像素内射出数条光线，在漫反射时 __随机__  取一条光路  
+- radiometry
+	![[Pasted image 20260913143728.png]]
+
+	- radiant intensity 辐射强度
+		每一单位立体角中的光强 -> 坎德拉
+
+	- irradiance 辐照度
+		- power per unit area
+		- will falloff
+
+	- radiance 辐亮度
+		- power per solid angle per u.a. (radiant intensity per u.a.)(irradiance per solid angle)
+- 蒙特卡洛积分
+	$\int f(x)\,dx \approx \frac{1}{N}\sum_{i=1}^{N}\frac{f(X_i)}{p(X_i)}, \qquad X_i\sim p(x)$
+
+	注意到此处有一个p(X)对取样偏好进行了抵消
+
+
+###### 模拟方式
+在每一个像素内射出数条光线，在漫反射时 __随机__  取一条光路 
+光路用概率的01抉择决定是否继续延续，权重除以该概率以获得正确期望
+问题：小光源影响大却难以被采样到，引入对光源的直接采样
+(该问题可以泛化为：某些影响大的方向不易被采样到，这些方向不一定是光源，也可能是光源的二次反射，此时就需要更完备的方法如BDPT)
+- 对光源的直接采样（NEE）
+	问题：BRDF 采样是“瞎撞”，小光源命中概率 $\varepsilon$ 极小 → fireflies（大量 0 与偶发大值），需要 $N\sim 1/\varepsilon$ 才能收敛。直接光（$\mathcal{K}\mathcal{E}$）应**瞄准光源采样**。
+	
+	换元：把积分域从半球立体角搬到光源面积 $A$，$d\omega_i=\dfrac{\cos\theta'\,dA}{\|x-x'\|^2}$：
+	
+	$$L_{\text{direct}}=\int_A L_e\,f\,\frac{\cos\theta_i\cos\theta'}{\|x-x'\|^2}V\,dA
+	\qquad
+	\langle L\rangle=\frac{L_e\,f\,\cos\theta_i \cos\theta'\,V}{p_A\,\|x-x'\|^2}$$
+	
+	- 均匀采样面光源 $p_A=1/A$ → $\langle L\rangle \approx L_e\,f\,\cos\theta_i\,\Omega_L$：单样本即低方差
+	- $\cos\theta_i$ 来自 BRDF 定义；$1/r^2$ 来自 radiance 衰减；$V$ 就是阴影光线
+	- 采样 pdf 在**面积测度**下给，故权重除以 $p_A$ 而非立体角 pdf
+	- 点光源/方向光是 delta 分布（$A=0$），不能撒点，直接求值
+	
+	限制：近镜面 glossy 时 BRDF 是窄尖峰，光源采样会打到峰外 → 与 BRDF 采样互补，用 __MIS__ 加权合并（同一方向两个 pdf 需换算到同一测度再相加）。
+	
+	实现要点：
+	- 每个 bounce 做一次 NEE（= 级数每一项都以 $\mathcal{E}$ 收尾）
+	- 若不用 MIS：BSDF 采样命中光源时不再计 $L_e$（避免重复计），只相机光线/镜面弹射命中才计
+```
+shade(p, wo)
+    # Contribution from the light source.
+    Uniformly sample the light at x' (pdf_light = 1 / A)
+    Shoot a ray from p to x'
+    if not blocked:
+	    L_dir = L_i * f_r * cos θ * cos θ' / |x' - p|^2 / pdf_light
+
+    # Contribution from other reflectors.
+    L_indir = 0.0
+    Test Russian Roulette with probability P_RR
+    Uniformly sample the hemisphere toward wi (pdf_hemi = 1 / 2pi)
+    Trace a ray r(p, wi)
+    If ray r hit a non-emitting object at q
+        L_indir = shade(q, -wi) * f_r * cos θ / pdf_hemi / P_RR
+
+    Return L_dir + L_indir
+```
+
+###### further more
+![[Pasted image 20260916142609.png]]![[Pasted image 20260916142547.png]]
+1

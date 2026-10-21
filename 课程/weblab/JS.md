@@ -9,7 +9,3 @@ rs.map((x) => (x.r*x.c))
 
 rs.filter((x) => (x.r*x.c > 10))
 ```
-
-
-
-
